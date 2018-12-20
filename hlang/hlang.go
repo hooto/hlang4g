@@ -16,6 +16,7 @@ package hlang
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -186,7 +187,12 @@ func (it *LangList) LoadMessages(file string, resync bool) {
 	cfgSync := it.Sync(cfg)
 
 	if resync {
-		json.EncodeToFile(cfg, file, "  ")
+
+		sort.Slice(cfgSync.Items, func(i, j int) bool {
+			return strings.Compare(cfgSync.Items[i].Key, cfgSync.Items[j].Key) < 0
+		})
+
+		json.EncodeToFile(cfgSync, file, "  ")
 	}
 
 	hlog.Printf("info", "hooto/hlang: setup i18n %s %d",
