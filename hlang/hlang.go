@@ -15,7 +15,11 @@
 package hlang
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"net/http"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -25,6 +29,7 @@ import (
 )
 
 const (
+	Version       = "0.9.0"
 	LocaleDefault = "en"
 )
 
@@ -197,6 +202,66 @@ func (it *LangList) LoadMessages(file string, resync bool) {
 
 	hlog.Printf("info", "hooto/hlang: setup i18n %s %d",
 		cfgSync.Locale, len(cfgSync.Items))
+}
+
+func (it *LangList) LoadMessageWithFs(fs http.FileSystem) {
+
+	var hfsWalk func(fs http.FileSystem, dir string) error
+
+	hfsWalk = func(fs http.FileSystem, dir string) error {
+
+		fp, err := fs.Open(dir)
+		if err != nil {
+			return err
+		}
+		defer fp.Close()
+		st, err := fp.Stat()
+		if err != nil {
+			return err
+		}
+
+		if !st.IsDir() {
+			if strings.HasSuffix(dir, ".json") {
+				var buf bytes.Buffer
+				_, err = io.Copy(&buf, fp)
+				if err != nil {
+					return err
+				}
+
+				var cfg LangLocaleList
+				if err := json.Decode(buf.Bytes(), &cfg); err != nil {
+					hlog.Printf("error", "hooto/hlang: setup i18n err %s", err.Error())
+					return err
+				}
+				it.Sync(cfg)
+
+				hlog.Printf("info", "hooto/hlang: setup i18n %s %d",
+					cfg.Locale, len(cfg.Items))
+			}
+			return nil
+		}
+
+		nodes, err := fp.Readdir(-1)
+		if err != nil {
+			return err
+		}
+
+		for _, n := range nodes {
+
+			if n.Name() == "." || n.Name() == ".." {
+				continue
+			}
+
+			if err = hfsWalk(fs, path.Join(dir, n.Name())); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	hfsWalk(fs, "/")
+
 }
 
 func (it *LangList) Translate(locale, msg string, args ...interface{}) string {
