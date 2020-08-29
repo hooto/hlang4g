@@ -16,15 +16,19 @@ package hlang
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/hooto/hlog4g/hlog"
+	"github.com/hooto/htoml4g/htoml"
 	"github.com/lessos/lessgo/encoding/json"
 )
 
@@ -39,19 +43,19 @@ var (
 
 type LangLocaleList struct {
 	mu     sync.RWMutex
-	Locale string             `json:"locale"`
-	Items  []*LangLocaleEntry `json:"items"`
-	Refer  *LangLocaleList    `json:"-"`
+	Locale string             `json:"locale" toml:"locale"`
+	Items  []*LangLocaleEntry `json:"items" toml:"items"`
+	Refer  *LangLocaleList    `json:"-" toml:"-"`
 }
 
 type LangLocaleEntry struct {
-	Key string `json:"key"`
-	Val string `json:"val"`
+	Key string `json:"key" toml:"key"`
+	Val string `json:"val" toml:"val"`
 }
 
 type LangList struct {
 	mu    sync.RWMutex
-	Items []*LangLocaleList
+	Items []*LangLocaleList `json:"items" toml:"items"`
 }
 
 func (it *LangLocaleList) Sync(item *LangLocaleEntry, rewrite bool) {
@@ -276,4 +280,52 @@ func (it *LangList) Translate(locale, msg string, args ...interface{}) string {
 	} else {
 		return msg
 	}
+}
+
+type FlushToDirInTOML string
+
+type FlushToDirInJSON string
+
+func (it *LangList) Flush(args ...interface{}) error {
+
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	for _, arg := range args {
+
+		switch arg.(type) {
+
+		case FlushToDirInJSON:
+			basedir := filepath.Clean(string(arg.(FlushToDirInJSON)))
+			if st, err := os.Stat(basedir); err != nil {
+				return err
+			} else if !st.IsDir() {
+				return errors.New("invalid dir")
+			}
+			for _, entry := range it.Items {
+				outpath := fmt.Sprintf("%s/%s.json", basedir, entry.Locale)
+				if err := json.EncodeToFile(entry, outpath, "  "); err != nil {
+					return err
+				}
+				hlog.Printf("info", "hlang flush to %s ok", outpath)
+			}
+
+		case FlushToDirInTOML:
+			basedir := filepath.Clean(string(arg.(FlushToDirInTOML)))
+			if st, err := os.Stat(basedir); err != nil {
+				return err
+			} else if !st.IsDir() {
+				return errors.New("invalid dir")
+			}
+			for _, entry := range it.Items {
+				outpath := fmt.Sprintf("%s/%s.toml", basedir, entry.Locale)
+				if err := htoml.EncodeToFile(entry, outpath, nil); err != nil {
+					return err
+				}
+				hlog.Printf("info", "hlang flush to %s ok", outpath)
+			}
+		}
+	}
+
+	return nil
 }
